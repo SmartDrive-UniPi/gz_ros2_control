@@ -37,7 +37,7 @@ To run the demo
 
   .. code-block:: shell
 
-    gz sim -g
+    ign gazebo -g
 
 
 2. Using Rocker
@@ -131,43 +131,17 @@ robot hardware interfaces between *ros2_control* and Gazebo.
 .. code-block:: xml
 
   <gazebo>
-    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      <parameters>$(find gz_ros2_control_demos)/config/cart_controller.yaml</parameters>
-    </plugin>
+      <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <robot_param>robot_description</robot_param>
+        <robot_param_node>robot_state_publisher</robot_param_node>
+        <parameters>$(find gz_ros2_control_demos)/config/cart_controller.yaml</parameters>
+      </plugin>
   </gazebo>
 
 The *gz_ros2_control* ``<plugin>`` tag also has the following optional child elements:
 
-* ``<parameters>``: A YAML file with the configuration of the controllers. This element can be given multiple times to load multiple files.
-* ``<controller_manager_name>``: Set controller manager name (default: ``controller_manager``)
-
-The following additional parameters can be set via child elements in the URDF or via ROS parameters in the YAML file above:
-
+* ``<parameters>``: YAML file with the configuration of the controllers
 * ``<hold_joints>``: if set to true (default), it will hold the joints' position if their interface was not claimed, e.g., the controller hasn't been activated yet.
-* ``<position_proportional_gain>``: Set the proportional gain. (default: 0.1) This determines the setpoint for a position-controlled joint ``joint_velocity = joint_position_error * position_proportional_gain``.
-
-or via ROS parameters:
-
-.. code-block:: yaml
-
-  gz_ros_control:
-    ros__parameters:
-      hold_joints: false
-      position_proportional_gain: 0.5
-
-Additionally, one can specify a namespace and remapping rules, which will be forwarded to the controller_manager and loaded controllers. Add the following ``<ros>`` section:
-
-.. code-block:: xml
-
-  <gazebo>
-    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      ...
-      <ros>
-        <namespace>my_namespace</namespace>
-        <remapping>/robot_description:=/robot_description_full</remapping>
-      </ros>
-    </plugin>
-  </gazebo>
 
 Default gz_ros2_control Behavior
 -----------------------------------------------------------
@@ -270,7 +244,6 @@ You can run some of the mobile robots running the following commands:
 
   ros2 launch gz_ros2_control_demos diff_drive_example.launch.py
   ros2 launch gz_ros2_control_demos tricycle_drive_example.launch.py
-  ros2 launch gz_ros2_control_demos ackermann_drive_example.launch.py
 
 When the Gazebo world is launched you can run some of the following commands to move the robots.
 
@@ -278,7 +251,6 @@ When the Gazebo world is launched you can run some of the following commands to 
 
   ros2 run gz_ros2_control_demos example_diff_drive
   ros2 run gz_ros2_control_demos example_tricycle_drive
-  ros2 run gz_ros2_control_demos example_ackermann_drive
 
 Gripper
 -----------------------------------------------------------

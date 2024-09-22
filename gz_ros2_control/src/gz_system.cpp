@@ -140,7 +140,7 @@ public:
   sim::EntityComponentManager * ecm;
 
   /// \brief controller update rate
-  unsigned int update_rate;
+  int * update_rate;
 
   /// \brief Gazebo communication node.
   GZ_TRANSPORT_NAMESPACE Node node;
@@ -160,7 +160,7 @@ bool GazeboSimSystem::initSim(
   std::map<std::string, sim::Entity> & enableJoints,
   const hardware_interface::HardwareInfo & hardware_info,
   sim::EntityComponentManager & _ecm,
-  unsigned int update_rate)
+  int & update_rate)
 {
   this->dataPtr = std::make_unique<GazeboSimSystemPrivate>();
   this->dataPtr->last_update_sim_time_ros_ = rclcpp::Time();
@@ -169,7 +169,7 @@ bool GazeboSimSystem::initSim(
   this->dataPtr->ecm = &_ecm;
   this->dataPtr->n_dof_ = hardware_info.joints.size();
 
-  this->dataPtr->update_rate = update_rate;
+  this->dataPtr->update_rate = &update_rate;
 
   try {
     this->dataPtr->hold_joints_ = this->nh_->get_parameter("hold_joints").as_bool();
@@ -200,30 +200,14 @@ bool GazeboSimSystem::initSim(
 
   this->dataPtr->joints_.resize(this->dataPtr->n_dof_);
 
+  constexpr double default_gain = 0.1;
+
   try {
-    this->dataPtr->position_proportional_gain_ =
-      this->nh_->get_parameter("position_proportional_gain").as_double();
-  } catch (rclcpp::exceptions::ParameterUninitializedException & ex) {
-    RCLCPP_ERROR(
-      this->nh_->get_logger(),
-      "Parameter 'position_proportional_gain' not initialized, with error %s", ex.what());
-    RCLCPP_WARN_STREAM(
-      this->nh_->get_logger(),
-      "Using default value: " << this->dataPtr->position_proportional_gain_);
-  } catch (rclcpp::exceptions::ParameterNotDeclaredException & ex) {
-    RCLCPP_ERROR(
-      this->nh_->get_logger(),
-      "Parameter 'position_proportional_gain' not declared, with error %s", ex.what());
-    RCLCPP_WARN_STREAM(
-      this->nh_->get_logger(),
-      "Using default value: " << this->dataPtr->position_proportional_gain_);
-  } catch (rclcpp::ParameterTypeException & ex) {
-    RCLCPP_ERROR(
-      this->nh_->get_logger(),
-      "Parameter 'position_proportional_gain' has wrong type: %s", ex.what());
-    RCLCPP_WARN_STREAM(
-      this->nh_->get_logger(),
-      "Using default value: " << this->dataPtr->position_proportional_gain_);
+    this->dataPtr->position_proportional_gain_ = this->nh_->declare_parameter<double>(
+      "position_proportional_gain", default_gain);
+  } catch (rclcpp::exceptions::ParameterAlreadyDeclaredException & ex) {
+    this->nh_->get_parameter(
+      "position_proportional_gain", this->dataPtr->position_proportional_gain_);
   }
 
   RCLCPP_INFO_STREAM(
@@ -239,14 +223,6 @@ bool GazeboSimSystem::initSim(
   for (unsigned int j = 0; j < this->dataPtr->n_dof_; j++) {
     auto & joint_info = hardware_info.joints[j];
     std::string joint_name = this->dataPtr->joints_[j].name = joint_info.name;
-
-    auto it_joint = enableJoints.find(joint_name);
-    if (it_joint == enableJoints.end()) {
-      RCLCPP_WARN_STREAM(
-        this->nh_->get_logger(), "Skipping joint in the URDF named '" << joint_name <<
-          "' which is not in the gazebo model.");
-      continue;
-    }
 
     sim::Entity simjoint = enableJoints[joint_name];
     this->dataPtr->joints_[j].sim_joint = simjoint;
@@ -478,9 +454,10 @@ void GazeboSimSystem::registerSensors(
 }
 
 CallbackReturn
-GazeboSimSystem::on_init(const hardware_interface::HardwareInfo & info)
+GazeboSimSystem::on_init(const hardware_interface::HardwareInfo & actuator_info)
 {
-  if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS) {
+  RCLCPP_WARN(this->nh_->get_logger(), "On init...");
+  if (hardware_interface::SystemInterface::on_init(actuator_info) != CallbackReturn::SUCCESS) {
     return CallbackReturn::ERROR;
   }
   return CallbackReturn::SUCCESS;
@@ -524,10 +501,6 @@ hardware_interface::return_type GazeboSimSystem::read(
   const rclcpp::Duration & /*period*/)
 {
   for (unsigned int i = 0; i < this->dataPtr->joints_.size(); ++i) {
-    if (this->dataPtr->joints_[i].sim_joint == sim::kNullEntity) {
-      continue;
-    }
-
     // Get the joint velocity
     const auto * jointVelocity =
       this->dataPtr->ecm->Component<sim::components::JointVelocity>(
@@ -620,10 +593,6 @@ hardware_interface::return_type GazeboSimSystem::write(
   const rclcpp::Duration & /*period*/)
 {
   for (unsigned int i = 0; i < this->dataPtr->joints_.size(); ++i) {
-    if (this->dataPtr->joints_[i].sim_joint == sim::kNullEntity) {
-      continue;
-    }
-
     if (this->dataPtr->joints_[i].joint_control_method & VELOCITY) {
       if (!this->dataPtr->ecm->Component<sim::components::JointVelocityCmd>(
           this->dataPtr->joints_[i].sim_joint))
@@ -642,7 +611,7 @@ hardware_interface::return_type GazeboSimSystem::write(
       // Get error in position
       double error;
       error = (this->dataPtr->joints_[i].joint_position -
-        this->dataPtr->joints_[i].joint_position_cmd) * this->dataPtr->update_rate;
+        this->dataPtr->joints_[i].joint_position_cmd) * *this->dataPtr->update_rate;
 
       // Calculate target velcity
       double target_vel = -this->dataPtr->position_proportional_gain_ * error;
@@ -705,7 +674,7 @@ hardware_interface::return_type GazeboSimSystem::write(
     double position_error =
       position_mimic_joint - position_mimicked_joint * mimic_joint.multiplier;
 
-    double velocity_sp = (-1.0) * position_error * this->dataPtr->update_rate;
+    double velocity_sp = (-1.0) * position_error * (*this->dataPtr->update_rate);
 
     auto vel =
       this->dataPtr->ecm->Component<sim::components::JointVelocityCmd>(
